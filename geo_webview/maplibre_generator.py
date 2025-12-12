@@ -620,6 +620,8 @@ def open_maplibre_from_permalink(permalink_text, wfs_typename: str = None):
 	<!-- checkboxes will be inserted here by script -->
 </div>
 <button id="pitchToggle" style="position:absolute;top:10px;right:10px;z-index:1001;padding:6px 8px;background:#fff;border:1px solid #666;border-radius:4px;cursor:pointer">斜め禁止</button>
+<!-- Placeholder: bottom-left save button (no behavior yet) -->
+<button id="savePageBtn" style="position:absolute;left:10px;bottom:10px;z-index:1003;padding:8px 10px;background:#fff;border:1px solid #666;border-radius:4px;cursor:pointer;font-size:13px">ページを保存</button>
 <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
 <script>
   console.log('MapLibre script loaded');
