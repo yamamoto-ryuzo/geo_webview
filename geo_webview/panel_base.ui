@@ -388,6 +388,25 @@
          </property>
         </widget>
        </item>
+          <item>
+           <widget class="QPushButton" name="pushButton_settings">
+            <property name="toolTip">
+             <string>Open plugin settings</string>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>35</width>
+              <height>25</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>35</width>
+              <height>25</height>
+             </size>
+            </property>
+           </widget>
+          </item>
       </layout>
      </item>
   </layout>

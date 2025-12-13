@@ -25,7 +25,7 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt.QtWidgets import QDockWidget, QWidget
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QSize
 
 # Qt6 enum compatibility: some enums are scoped in Qt6 (e.g. DockWidgetArea).
 # Ensure older attribute style (Qt.LeftDockWidgetArea) exists for code that
@@ -63,7 +63,7 @@ try:
                 QDockWidget.DockWidgetClosable = getattr(feat, 'Closable')
 except Exception:
     pass
-from qgis.PyQt.QtGui import QGuiApplication
+from qgis.PyQt.QtGui import QGuiApplication, QIcon
 
 # UIファイルのパスを指定
 FORM_CLASS = None
@@ -128,6 +128,7 @@ class GeoWebViewPanel(QDockWidget):
         self.pushButton_open = getattr(self.ui, 'pushButton_open', None)
         # MapLibre button (added in UI)
         self.pushButton_maplibre = getattr(self.ui, 'pushButton_maplibre', None)
+        self.pushButton_settings = getattr(self.ui, 'pushButton_settings', None)
         self.lineEdit_permalink = getattr(self.ui, 'lineEdit_permalink', None)
         self.lineEdit_navigate = getattr(self.ui, 'lineEdit_navigate', None)
         self.label_server_status = getattr(self.ui, 'label_server_status', None)
@@ -162,6 +163,36 @@ class GeoWebViewPanel(QDockWidget):
         
         # UI要素を翻訳
         self.translate_ui()
+
+        # 設定ボタンのアイコンを読み込み、枠付きスタイルを適用
+        try:
+            if self.pushButton_settings is not None:
+                try:
+                    icon_path = os.path.join(os.path.dirname(__file__), 'icon', 'setting.png')
+                    if os.path.exists(icon_path):
+                        self.pushButton_settings.setIcon(QIcon(icon_path))
+                        self.pushButton_settings.setIconSize(QSize(20, 20))
+                    # add framed look similar to ICO frame
+                    self.pushButton_settings.setStyleSheet('border:1px solid #888; border-radius:4px; padding:2px;')
+                except Exception:
+                    pass
+                # connect to placeholder settings dialog opener
+                try:
+                    from .settings_dialog import SettingsDialog
+
+                    def _open_settings():
+                        try:
+                            dlg = SettingsDialog(self)
+                            dlg.exec_()
+                        except Exception:
+                            pass
+
+                    self.pushButton_settings.clicked.connect(_open_settings)
+                except Exception:
+                    # no settings dialog available; ignore
+                    pass
+        except Exception:
+            pass
 
         # クリップボード関連のシグナルを接続
         try:
