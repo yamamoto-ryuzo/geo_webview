@@ -2372,6 +2372,24 @@ class GeoWebView:
     def on_google_maps_clicked_panel(self):
         """パネル版：Google Mapsボタンがクリックされた時の処理"""
         try:
+            # パーマリンクが存在しない場合は自動生成
+            permalink_text = ''
+            if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
+                permalink_text = self.panel.lineEdit_permalink.text().strip() or ''
+            
+            if not permalink_text:
+                # パーマリンクが無い場合は自動生成
+                try:
+                    permalink_text = self.generate_permalink(include_theme=False)
+                    # 生成したパーマリンクをパネルに設定
+                    if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
+                        self.panel.lineEdit_permalink.setText(permalink_text)
+                except Exception as e:
+                    self.iface.messageBar().pushMessage(
+                        "geo_webview", f"パーマリンク自動生成エラー: {str(e)}", duration=5
+                    )
+                    return
+            
             # 現在の地図ビューから直接ナビゲーションデータを作成
             canvas = self.iface.mapCanvas()
             extent = canvas.extent()
@@ -2418,6 +2436,24 @@ class GeoWebView:
     def on_google_earth_clicked_panel(self):
         """パネル版：Google Earthボタンがクリックされた時の処理"""
         try:
+            # パーマリンクが存在しない場合は自動生成
+            permalink_text = ''
+            if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
+                permalink_text = self.panel.lineEdit_permalink.text().strip() or ''
+            
+            if not permalink_text:
+                # パーマリンクが無い場合は自動生成
+                try:
+                    permalink_text = self.generate_permalink(include_theme=False)
+                    # 生成したパーマリンクをパネルに設定
+                    if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
+                        self.panel.lineEdit_permalink.setText(permalink_text)
+                except Exception as e:
+                    self.iface.messageBar().pushMessage(
+                        "geo_webview", f"パーマリンク自動生成エラー: {str(e)}", duration=5
+                    )
+                    return
+            
             # 現在の地図ビューから直接ナビゲーションデータを作成
             canvas = self.iface.mapCanvas()
             extent = canvas.extent()
@@ -2479,9 +2515,19 @@ class GeoWebView:
             if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
                 permalink_text = self.panel.lineEdit_permalink.text() or ''
             
-            # パーマリンクがない場合はナビゲートフィールドから取得
-            if not permalink_text and hasattr(self.panel, 'lineEdit_navigate') and self.panel.lineEdit_navigate is not None:
-                permalink_text = self.panel.lineEdit_navigate.text() or ''
+            # パーマリンクがない場合は自動生成
+            if not permalink_text:
+                # パーマリンクが無い場合は自動生成
+                try:
+                    permalink_text = self.generate_permalink(include_theme=False)
+                    # 生成したパーマリンクをパネルに設定
+                    if hasattr(self.panel, 'lineEdit_permalink') and self.panel.lineEdit_permalink is not None:
+                        self.panel.lineEdit_permalink.setText(permalink_text)
+                except Exception as e:
+                    self.iface.messageBar().pushMessage(
+                        "geo_webview", f"パーマリンク自動生成エラー: {str(e)}", duration=5
+                    )
+                    return
             
             # パーマリンクのパラメータを解析
             from urllib.parse import parse_qs, urlparse
