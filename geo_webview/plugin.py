@@ -569,15 +569,27 @@ class GeoWebView:
                 self._qgis_log('[OpenLayers] Already in EPSG:3857', 'INFO')
             
             # ナビゲーションデータ作成
+            # テーマとブックマークを収集
+            try:
+                themes_list = self._collect_themes()
+            except Exception:
+                themes_list = []
+            try:
+                bookmarks_list = self._collect_bookmarks_epsg3857()
+            except Exception:
+                bookmarks_list = []
+
             navigation_data = {
                 'x': center_3857.x(),
                 'y': center_3857.y(),
                 'scale': scale,
                 'rotation': canvas.rotation(),
                 'crs': 'EPSG:3857',
-                'bookmarks': [],
-                'themes': []
+                'bookmarks': bookmarks_list,
+                'themes': themes_list,
             }
+            self._qgis_log(f"[OpenLayers] Themes collected: {len(themes_list)}", 'INFO')
+            self._qgis_log(f"[OpenLayers] Bookmarks collected: {len(bookmarks_list)}", 'INFO')
             
             self._qgis_log('[OpenLayers] Generating HTML content...', 'INFO')
             
@@ -633,6 +645,70 @@ class GeoWebView:
                 self.tr('geo_webview'), 
                 self.tr(f'Error opening OpenLayers: {str(e)}\n\nSee QGIS log for details.')
             )
+
+    def _collect_themes(self):
+        """QGISプロジェクトのテーマ名一覧を取得"""
+        try:
+            from qgis.core import QgsProject
+            project = QgsProject.instance()
+            if not project:
+                return []
+            tc = project.mapThemeCollection()
+            if not tc:
+                return []
+            themes = list(tc.mapThemes())
+            return sorted(themes)
+        except Exception:
+            return []
+
+    def _collect_bookmarks_epsg3857(self):
+        """プロジェクト/ユーザブックマークを収集し中心座標をEPSG:3857に変換して返す。
+
+        Returns: [{ 'name': str, 'x': float, 'y': float }]
+        """
+        out = []
+        try:
+            from qgis.core import QgsProject, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointXY, QgsApplication
+        except Exception:
+            return out
+        try:
+            project = QgsProject.instance()
+            bookmark_mgr = project.bookmarkManager() if project else None
+            proj_bms = bookmark_mgr.bookmarks() if bookmark_mgr else []
+        except Exception:
+            proj_bms = []
+        try:
+            app_bm_mgr = QgsApplication.bookmarkManager()
+            app_bms = app_bm_mgr.bookmarks() if app_bm_mgr else []
+        except Exception:
+            app_bms = []
+        all_bms = list(proj_bms) + list(app_bms)
+        try:
+            dest = QgsCoordinateReferenceSystem('EPSG:3857')
+        except Exception:
+            return out
+        for bm in all_bms:
+            try:
+                name = bm.name() if hasattr(bm, 'name') else ''
+                extent = bm.extent() if hasattr(bm, 'extent') else None
+                if not extent:
+                    continue
+                cx = extent.center().x()
+                cy = extent.center().y()
+                src = extent.crs()
+                if src is None or not src.isValid():
+                    # 推定: 値が大きければ既に3857、それ以外は4326
+                    src = QgsCoordinateReferenceSystem('EPSG:3857' if (abs(cx) > 180 or abs(cy) > 180) else 'EPSG:4326')
+                if src.authid() == 'EPSG:3857':
+                    tx, ty = cx, cy
+                else:
+                    t = QgsCoordinateTransform(src, dest, project)
+                    p = t.transform(QgsPointXY(cx, cy))
+                    tx, ty = p.x(), p.y()
+                out.append({'name': name, 'x': float(tx), 'y': float(ty)})
+            except Exception:
+                continue
+        return out
 
     def _serve_static_and_get_url(self, folder_path: str, preferred_port: int = 8091) -> str:
         """指定フォルダを簡易HTTPサーバで配信し、index.html のURLを返す。
