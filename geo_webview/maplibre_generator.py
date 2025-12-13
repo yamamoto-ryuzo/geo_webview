@@ -136,6 +136,12 @@ import requests
 from .maplibre.qmap_maplibre_wmts import choose_tile_template, default_wmts_layers_js
 from .maplibre.qmap_maplibre_wfs import sld_to_mapbox_style
 
+# Import for settings
+try:
+	from qgis.PyQt.QtCore import QSettings
+except ImportError:
+	QSettings = None
+
 
 def _qgis_log(message, level='info'):
 	"""Log message to QGIS message log when available, otherwise print.
@@ -754,14 +760,27 @@ __EXTERNAL_SCRIPT_TAGS__
 		html_out = html_out.replace('__WFS_LAYERS_JS__', '')
 		html_out = html_out.replace('__WMTS_LAYERS_JS__', '')
 
-		# Create a temp directory and copy packaged scripts into it
-		temp_dir = tempfile.mkdtemp(prefix='qmap_maplibre_')
-		path = os.path.join(temp_dir, 'index.html')
+		# Get output directory from settings or use default temp directory
+		output_dir = None
+		if QSettings is not None:
+			try:
+				settings = QSettings('GeoWebView', 'geo_webview')
+				saved_path = settings.value('maplibre_output_path', None)
+				if saved_path and saved_path != '__default__' and os.path.isdir(saved_path):
+					output_dir = saved_path
+			except Exception:
+				pass
+		
+		# Fall back to temp directory if no valid settings path
+		if output_dir is None:
+			output_dir = tempfile.mkdtemp(prefix='qmap_maplibre_')
+		
+		path = os.path.join(output_dir, 'index.html')
 		pkg_scripts_dir = os.path.join(os.path.dirname(__file__), 'maplibre', 'scripts')
 		for _script in ('wmts_layers.js', 'qmap_postload.js', 'show_zoom.js'):
 			try:
 				with open(os.path.join(pkg_scripts_dir, _script), 'rb') as rf:
-					with open(os.path.join(temp_dir, _script), 'wb') as wf:
+					with open(os.path.join(output_dir, _script), 'wb') as wf:
 						wf.write(rf.read())
 			except Exception:
 				# ignore copy failures; continue to write HTML
@@ -771,7 +790,7 @@ __EXTERNAL_SCRIPT_TAGS__
 		# the generated HTML works both when opened via file:// and when served
 		# by an HTTP endpoint that may not be serving the script files.
 		def _read_script(name):
-			p = os.path.join(temp_dir, name)
+			p = os.path.join(output_dir, name)
 			try:
 				with open(p, 'r', encoding='utf-8') as rf:
 					return rf.read()
