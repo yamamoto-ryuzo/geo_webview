@@ -236,6 +236,33 @@ class GeoWebView:
         """
         return QCoreApplication.translate('geo_webview', message)
 
+    def _qgis_log(self, message, level='INFO'):
+        """QGIS のメッセージログに安全に出力するヘルパー。
+
+        level は 'INFO'|'WARNING'|'CRITICAL'|'DEBUG' など大小混在を許容。
+        QGIS API が利用できない場合は print にフォールバック。
+        """
+        try:
+            from qgis.core import QgsMessageLog, Qgis
+            lvl = str(level).lower()
+            if lvl == 'warning':
+                sev = Qgis.Warning
+            elif lvl == 'critical':
+                sev = Qgis.Critical
+            else:
+                # treat everything else as info (including 'debug')
+                sev = Qgis.Info
+            try:
+                QgsMessageLog.logMessage(str(message), 'geo_webview', sev)
+            except Exception:
+                # 一部環境で MessageLog が失敗する場合に備えて冗長化
+                print(message)
+        except Exception:
+            try:
+                print(message)
+            except Exception:
+                pass
+
     def add_action(
         self,
         icon_path,
@@ -351,6 +378,11 @@ class GeoWebView:
                 self.panel.pushButton_copy.clicked.connect(self.on_copy_clicked_panel)
                 if hasattr(self.panel, 'pushButton_open'):
                     self.panel.pushButton_open.clicked.connect(self.on_open_clicked_panel)
+                    print("pushButton_open接続成功: on_open_clicked_panel")
+                    self._qgis_log('[DEBUG] pushButton_open connected to on_open_clicked_panel', 'INFO')
+                else:
+                    print("警告: pushButton_openが見つかりません")
+                    self._qgis_log('[DEBUG] WARNING: pushButton_open not found', 'WARNING')
                 
                 # Google Maps/Earthボタンのイベントを接続
                 if hasattr(self.panel, 'pushButton_google_maps'):
@@ -507,14 +539,164 @@ class GeoWebView:
             )
 
     def on_open_clicked_panel(self):
-        """パネルの 'Open' ボタンが押されたときに /web-ui/ を開く"""
+        """パネルの 'Open' ボタンが押されたときにOpenLayersマップを生成して保存"""
         try:
+            self._qgis_log('[OpenLayers] Starting HTML generation...', 'INFO')
+            
+            # サーバーポート取得
             port = self.server_manager.get_server_port() or 8089
-            url = QUrl(f'http://localhost:{port}/web-ui/')
-            if not QDesktopServices.openUrl(url):
-                QMessageBox.warning(self.iface.mainWindow(), self.tr('geo_webview'), self.tr('Failed to open web UI in browser.'))
+            self._qgis_log(f'[OpenLayers] Server port: {port}', 'INFO')
+            
+            # ナビゲーションデータを構築
+            from .scale_zoom import estimate_zoom_from_scale
+            canvas = self.iface.mapCanvas()
+            center = canvas.center()
+            scale = canvas.scale()
+            
+            self._qgis_log(f'[OpenLayers] Canvas center: {center.x()}, {center.y()}, scale: {scale}', 'INFO')
+            
+            # EPSG:3857に変換
+            from qgis.core import QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsProject
+            canvas_crs = canvas.mapSettings().destinationCrs()
+            target_crs = QgsCoordinateReferenceSystem('EPSG:3857')
+            
+            if canvas_crs.authid() != 'EPSG:3857':
+                transform = QgsCoordinateTransform(canvas_crs, target_crs, QgsProject.instance())
+                center_3857 = transform.transform(center)
+                self._qgis_log(f'[OpenLayers] Transformed to EPSG:3857: {center_3857.x()}, {center_3857.y()}', 'INFO')
+            else:
+                center_3857 = center
+                self._qgis_log('[OpenLayers] Already in EPSG:3857', 'INFO')
+            
+            # ナビゲーションデータ作成
+            navigation_data = {
+                'x': center_3857.x(),
+                'y': center_3857.y(),
+                'scale': scale,
+                'rotation': canvas.rotation(),
+                'crs': 'EPSG:3857',
+                'bookmarks': [],
+                'themes': []
+            }
+            
+            self._qgis_log('[OpenLayers] Generating HTML content...', 'INFO')
+            
+            # OpenLayersのHTMLを生成
+            html_content = self.webmap_generator.generate_wms_based_html_page(
+                navigation_data,
+                image_width=800,
+                image_height=600,
+                server_port=port
+            )
+            
+            self._qgis_log(f'[OpenLayers] HTML generated, length: {len(html_content)} chars', 'INFO')
+            
+            # ファイルに保存
+            from .webmap_generator import save_openlayers_html_to_file
+            self._qgis_log('[OpenLayers] Saving HTML to file...', 'INFO')
+            
+            html_path = save_openlayers_html_to_file(html_content, port)
+            
+            self._qgis_log(f'[OpenLayers] HTML saved to: {html_path}', 'INFO')
+            
+            if not html_path or not os.path.exists(html_path):
+                error_msg = f"Failed to save OpenLayers HTML. Path: {html_path}"
+                self._qgis_log(f'[OpenLayers] ERROR: {error_msg}', 'CRITICAL')
+                QMessageBox.critical(
+                    self.iface.mainWindow(),
+                    self.tr("Error"),
+                    self.tr(error_msg)
+                )
+                return
+            
+            # 保存されたHTMLファイルを簡易HTTPサーバ経由でブラウザで開く（file:// 由来のCORS問題を回避）
+            try:
+                html_dir = os.path.dirname(html_path)
+                url = self._serve_static_and_get_url(html_dir)
+                import webbrowser
+                self._qgis_log(f'[OpenLayers] Opening in browser: {url}', 'INFO')
+                webbrowser.open(url)
+                self._qgis_log('[OpenLayers] Successfully opened in browser', 'INFO')
+            except Exception:
+                # フォールバック: 直接 file:// で開く
+                import webbrowser
+                file_url = f"file:///{html_path.replace(os.sep, '/')}"
+                self._qgis_log(f'[OpenLayers] Fallback opening (file://): {file_url}', 'WARNING')
+                webbrowser.open(file_url)
+            
         except Exception as e:
-            QMessageBox.warning(self.iface.mainWindow(), self.tr('geo_webview'), self.tr(f'Error opening web UI: {e}'))
+            import traceback
+            error_details = traceback.format_exc()
+            self._qgis_log(f'[OpenLayers] ERROR: {error_details}', 'CRITICAL')
+            QMessageBox.warning(
+                self.iface.mainWindow(), 
+                self.tr('geo_webview'), 
+                self.tr(f'Error opening OpenLayers: {str(e)}\n\nSee QGIS log for details.')
+            )
+
+    def _serve_static_and_get_url(self, folder_path: str, preferred_port: int = 8091) -> str:
+        """指定フォルダを簡易HTTPサーバで配信し、index.html のURLを返す。
+
+        - Python 標準の SimpleHTTPRequestHandler を使用（別スレッドで起動）
+        - 既にサーバが起動済みの場合は再利用し、最新のフォルダを配信する
+        """
+        try:
+            import threading
+            import socket
+            from http.server import SimpleHTTPRequestHandler
+            from socketserver import TCPServer
+            import functools
+
+            # 既存サーバの停止（フォルダを切り替えるため）
+            try:
+                if hasattr(self, '_static_server') and self._static_server:
+                    self._static_server.shutdown()
+                    self._static_server.server_close()
+                    self._static_server = None
+            except Exception:
+                pass
+
+            # 使用可能なポートを検索
+            port = None
+            for p in range(preferred_port, preferred_port + 20):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.2)
+                    try:
+                        s.bind(('127.0.0.1', p))
+                        port = p
+                        break
+                    except Exception:
+                        continue
+            if port is None:
+                port = preferred_port
+
+            # ディレクトリを指定してハンドラ生成（chdir不要）
+            # ヘッダに charset=UTF-8 を付与して文字化けを防止
+            class UTF8Handler(SimpleHTTPRequestHandler):
+                extensions_map = SimpleHTTPRequestHandler.extensions_map.copy()
+                extensions_map.update({
+                    '.html': 'text/html; charset=UTF-8',
+                    '.htm': 'text/html; charset=UTF-8',
+                    '.css': 'text/css; charset=UTF-8',
+                    '.js': 'application/javascript; charset=UTF-8',
+                })
+
+            handler = functools.partial(UTF8Handler, directory=folder_path)
+
+            class ReuseTCPServer(TCPServer):
+                allow_reuse_address = True
+
+            server = ReuseTCPServer(('127.0.0.1', port), handler)
+            self._static_server = server
+
+            t = threading.Thread(target=server.serve_forever, name='StaticHTTP', daemon=True)
+            t.start()
+            self._static_server_thread = t
+
+            return f"http://127.0.0.1:{port}/index.html"
+        except Exception as e:
+            self._qgis_log(f"[OpenLayers] Static HTTP server failed: {e}", 'WARNING')
+            raise
 
     def _try_tabify_with_existing_panels(self):
         """既存の左側パネルがあればタブ化を試行"""
@@ -588,6 +770,14 @@ class GeoWebView:
         """プラグインのアンロード時の処理"""
         # HTTPサーバーを停止
         self.server_manager.stop_http_server()
+        # 静的配信サーバを停止
+        try:
+            if hasattr(self, '_static_server') and self._static_server:
+                self._static_server.shutdown()
+                self._static_server.server_close()
+                self._static_server = None
+        except Exception:
+            pass
         
         # パネルを削除
         if self.panel is not None:
@@ -2101,30 +2291,7 @@ class GeoWebView:
                 "クリップボードへのコピーに失敗しました。手動でコピーしてください。"
             )
 
-    def on_open_clicked_panel(self):
-        """パネル版：ブラウザで開くボタンがクリックされた時の処理"""
-        permalink_url = self.panel.lineEdit_permalink.text().strip()
-        if not permalink_url:
-            QMessageBox.warning(
-                self.iface.mainWindow(),
-                self.tr("QMap Permalink"),
-                self.tr("No permalink available to open.")
-            )
-            return
-            
-        try:
-            QDesktopServices.openUrl(QUrl(permalink_url))
-            self.iface.messageBar().pushMessage(
-                self.tr("QMap Permalink"),
-                self.tr("Permalink opened in browser."),
-                duration=3
-            )
-        except Exception as e:
-            QMessageBox.critical(
-                self.iface.mainWindow(),
-                self.tr("QMap Permalink"),
-                self.tr("Failed to open in browser: {error}").format(error=str(e))
-            )
+    
 
     def on_google_maps_clicked_panel(self):
         """パネル版：Google Mapsボタンがクリックされた時の処理"""

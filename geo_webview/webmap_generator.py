@@ -452,19 +452,9 @@ class QMapWebMapGenerator:
     // prefer the configured server port (useful for testing). Use explicit IPv4 (127.0.0.1) to avoid IPv6 (::1) resolution issues.
         // Determine wms base URL: prefer page origin when usable, but when opened via file://
         // or when origin is not available, fall back to the configured serverPort on 127.0.0.1.
+        // Always target the plugin's WMS server port to avoid mismatched origins
+        // when serving the HTML from a separate static server. Using explicit IPv4.
         const wmsBase = (function(){
-            try{
-                if(typeof window !== 'undefined' && window.location){
-                    try{
-                        var proto = window.location.protocol || '';
-                        if(proto === 'file:'){
-                            if(typeof serverPort !== 'undefined' && serverPort) return 'http://127.0.0.1:' + serverPort;
-                        } else if(window.location.origin){
-                            return window.location.origin;
-                        }
-                    }catch(e){}
-                }
-            }catch(e){}
             try{ if(typeof serverPort !== 'undefined' && serverPort) return 'http://127.0.0.1:' + serverPort; }catch(e){}
             return 'http://127.0.0.1:8089';
         })();
@@ -755,7 +745,11 @@ class QMapWebMapGenerator:
         html = (
             '<!doctype html>\n'
             '<html lang="ja">\n'
-            '<head>' + head + '\n'
+            '<head>' + '\n'
+            '  <meta charset="utf-8">\n'
+            '  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">\n'
+            '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            + head + '\n'
             '  <style>html,body{height:100%;margin:0;padding:0}#map{width:100vw;height:100vh}#qmp-left-controls{position:absolute;left:72px;top:10px;z-index:999;display:flex;flex-direction:column;gap:8px} #qmp-right-controls{position:absolute;right:35px;top:10px;z-index:999;display:flex;flex-direction:column;gap:6px} .qmp-control{background:#fff;border-radius:4px;padding:6px 8px;box-shadow:0 2px 6px rgba(0,0,0,0.15);font-size:13px;border:1px solid rgba(0,0,0,0.06)} /* coords box on bottom-right */ #qmp-coords{position:absolute;right:10px;bottom:10px;z-index:1000;background:rgba(255,255,255,0.95);padding:6px 8px;border-radius:4px;font-size:13px;border:1px solid rgba(0,0,0,0.08)} /* CORS warning */ #qmp-cors-warning{position:absolute;left:50%;top:20px;transform:translateX(-50%);z-index:1100;background:#fff5f5;border:1px solid #ffcccc;color:#660000;padding:10px 14px;border-radius:6px;display:none;max-width:80%;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.12)} </style>\n'
             '</head>\n'
             '<body>\n'
@@ -823,3 +817,71 @@ def json_safe(v):
         return json.dumps(v)
     except Exception:
         return 'null'
+
+
+def save_openlayers_html_to_file(html_content: str, server_port: int = 8089) -> str:
+    """Save OpenLayers HTML to a file with date-time based folder structure.
+    
+    Args:
+        html_content: The HTML content to save
+        server_port: The port number of the QGIS HTTP server (unused, for compatibility)
+    
+    Returns the file path where the HTML was saved.
+    Similar to MapLibre: saves to {base_path}/qmap_openlayers_{timestamp}/index.html
+    """
+    try:
+        import os
+        import tempfile
+        from datetime import datetime
+        
+        try:
+            from qgis.PyQt.QtCore import QSettings
+            settings = QSettings('GeoWebView', 'geo_webview')
+            saved_path = settings.value('openlayers_output_path', None)
+        except Exception:
+            saved_path = None
+        
+        # Determine output directory
+        if saved_path is None or saved_path == '__default__':
+            # Use system temp directory with base folder
+            base_dir = tempfile.gettempdir()
+            output_dir = os.path.join(base_dir, 'qmap_openlayers')
+            # Create base folder if it doesn't exist
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except Exception as e:
+                _qmp_log(f'[OpenLayers] Failed to create base directory {output_dir}: {e}', level='WARN')
+        else:
+            output_dir = saved_path
+            # Create custom base folder if it doesn't exist
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except Exception as e:
+                _qmp_log(f'[OpenLayers] Failed to create output directory {output_dir}: {e}', level='WARN')
+        
+        # Create timestamped subdirectory
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamped_dir = os.path.join(output_dir, f'qmap_openlayers_{timestamp}')
+        
+        try:
+            os.makedirs(timestamped_dir, exist_ok=True)
+        except Exception as e:
+            _qmp_log(f'[OpenLayers] Failed to create directory {timestamped_dir}: {e}', level='WARN')
+            # Fallback to tempfile.mkdtemp
+            try:
+                timestamped_dir = tempfile.mkdtemp(prefix='qmap_openlayers_')
+                _qmp_log(f'[OpenLayers] Fallback to temp directory: {timestamped_dir}')
+            except Exception:
+                _qmp_log('[OpenLayers] Failed to create any output directory', level='ERROR')
+                raise
+        
+        # Write HTML file
+        file_path = os.path.join(timestamped_dir, 'index.html')
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        _qmp_log(f'[OpenLayers] HTML saved to {file_path}')
+        return file_path
+    except Exception as e:
+        _qmp_log(f'[OpenLayers] Error saving HTML: {e}', level='ERROR')
+        raise
