@@ -183,7 +183,11 @@ class GeoWebViewPanel(QDockWidget):
                     def _open_settings():
                         try:
                             dlg = SettingsDialog(self)
-                            dlg.exec_()
+                            # exec_ on PyQt5, exec on PyQt6 — handle both
+                            if hasattr(dlg, 'exec_'):
+                                dlg.exec_()
+                            else:
+                                dlg.exec()
                         except Exception:
                             pass
 
