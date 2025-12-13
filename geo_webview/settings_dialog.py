@@ -11,7 +11,7 @@ class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(SettingsDialog, self).__init__(parent)
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(600)
         try:
             icon_path = os.path.join(os.path.dirname(__file__), 'icon', 'setting.png')
             if os.path.exists(icon_path):
@@ -89,15 +89,32 @@ class SettingsDialog(QtWidgets.QDialog):
         # Load saved settings
         self._load_settings()
 
+    def showEvent(self, event):
+        """Refresh settings when dialog is shown to reflect latest values"""
+        super().showEvent(event)
+        self._load_settings()
+
     def _load_settings(self):
-        """Load saved MapLibre output path from QSettings"""
+        """Load saved MapLibre output path from QSettings and display it dynamically"""
         saved_path = self.settings.value('maplibre_output_path', None)
         if saved_path is None or saved_path == '__default__':
-            self.path_input.setText(f"[Default] {tempfile.gettempdir()}")
+            # Dynamically get the default folder: tempdir/qmap_maplibre
+            temp_dir = tempfile.gettempdir()
+            default_folder = os.path.join(temp_dir, 'qmap_maplibre')
+            self.path_input.setText(f"[Default] {default_folder}")
             self._current_path = '__default__'
         else:
-            self.path_input.setText(saved_path)
-            self._current_path = saved_path
+            # Verify the saved path still exists
+            if os.path.exists(saved_path):
+                self.path_input.setText(saved_path)
+                self._current_path = saved_path
+            else:
+                # Path no longer exists, reset to default
+                temp_dir = tempfile.gettempdir()
+                default_folder = os.path.join(temp_dir, 'qmap_maplibre')
+                self.path_input.setText(f"[Default] {default_folder}")
+                self._current_path = '__default__'
+                self.settings.setValue('maplibre_output_path', '__default__')
 
     def _browse_folder(self):
         """Open a folder browser dialog to select output directory"""
@@ -123,20 +140,31 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def _open_folder(self):
         """Open the current output directory in file explorer"""
-        if self._current_path == '__default__':
-            path_to_open = tempfile.gettempdir()
+        # Always get the latest setting value
+        saved_path = self.settings.value('maplibre_output_path', None)
+        if saved_path is None or saved_path == '__default__':
+            # Default: tempdir/qmap_maplibre
+            temp_dir = tempfile.gettempdir()
+            path_to_open = os.path.join(temp_dir, 'qmap_maplibre')
         else:
-            path_to_open = self._current_path
+            path_to_open = saved_path
+        
+        # Normalize path (convert forward slashes to backslashes on Windows)
+        path_to_open = os.path.normpath(path_to_open)
         
         if os.path.exists(path_to_open):
             try:
-                import subprocess
                 import platform
                 if platform.system() == 'Windows':
-                    subprocess.Popen(f'explorer /select,"{path_to_open}"')
+                    # Use os.startfile for Windows (more reliable)
+                    os.startfile(path_to_open)
                 elif platform.system() == 'Darwin':
-                    subprocess.Popen(['open', '-R', path_to_open])
+                    # macOS
+                    import subprocess
+                    subprocess.Popen(['open', path_to_open])
                 else:
+                    # Linux
+                    import subprocess
                     subprocess.Popen(['xdg-open', path_to_open])
             except Exception as e:
                 QtWidgets.QMessageBox.warning(self, "Error", f"Failed to open folder: {e}")

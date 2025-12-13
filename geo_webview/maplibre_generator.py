@@ -766,14 +766,43 @@ __EXTERNAL_SCRIPT_TAGS__
 			try:
 				settings = QSettings('GeoWebView', 'geo_webview')
 				saved_path = settings.value('maplibre_output_path', None)
-				if saved_path and saved_path != '__default__' and os.path.isdir(saved_path):
-					output_dir = saved_path
-			except Exception:
-				pass
+				if saved_path and saved_path != '__default__':
+					# Create a dated subfolder under the configured path
+					from datetime import datetime
+					timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+					dated_folder = os.path.join(saved_path, f'qmap_maplibre_{timestamp}')
+					try:
+						os.makedirs(dated_folder, exist_ok=True)
+						output_dir = dated_folder
+						_qgis_log(f"Using configured output directory with timestamp: {output_dir}", 'info')
+					except Exception as e:
+						_qgis_log(f"Failed to create dated folder in {saved_path}: {e}", 'warning')
+						# Fall back to using the base path if dated folder creation fails
+						try:
+							os.makedirs(saved_path, exist_ok=True)
+							output_dir = saved_path
+							_qgis_log(f"Using configured output directory: {output_dir}", 'info')
+						except Exception as e2:
+							_qgis_log(f"Failed to create output directory {saved_path}: {e2}", 'warning')
+			except Exception as e:
+				_qgis_log(f"Error reading output path from settings: {e}", 'debug')
 		
 		# Fall back to temp directory if no valid settings path
 		if output_dir is None:
-			output_dir = tempfile.mkdtemp(prefix='qmap_maplibre_')
+			# Use current date and time for folder name instead of random string
+			from datetime import datetime
+			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+			temp_base = tempfile.gettempdir()
+			# Create nested folder: temp/qmap_maplibre/qmap_maplibre_YYYYMMDD_HHMMSS
+			base_folder = os.path.join(temp_base, 'qmap_maplibre')
+			output_dir = os.path.join(base_folder, f'qmap_maplibre_{timestamp}')
+			try:
+				os.makedirs(output_dir, exist_ok=True)
+				_qgis_log(f"Using temporary directory: {output_dir}", 'info')
+			except Exception as e:
+				# If creating the dated directory fails, fall back to mkdtemp
+				output_dir = tempfile.mkdtemp(prefix='qmap_maplibre_')
+				_qgis_log(f"Failed to create dated temp dir, using: {output_dir}", 'warning')
 		
 		path = os.path.join(output_dir, 'index.html')
 		pkg_scripts_dir = os.path.join(os.path.dirname(__file__), 'maplibre', 'scripts')
