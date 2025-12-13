@@ -4,7 +4,7 @@ qgisMinimumVersion = 3.00
 qgisMaximumVersion = 3.99
 description = Navigate QGIS map views through external permalink system; includes dynamic WMS/OpenLayers and MapLibre (WMTS/WFS with style injection) endpoints for remote navigation
 supports = WMS, WMTS, WFS, OpenLayers, MapLibre, Google Maps, Google Earth
-version = 3.10.0
+version = 3.10.1
 author = yamamoto-ryuzo
 email = ryu@yamakun.net
 supportsQt6 = True
@@ -19,9 +19,7 @@ icon = icon.png
 experimental = false
 deprecated = false
 hasProcessingProvider = false
-
 changelog = 
 	- OpenLayers and MapLibre HTML generation with independent file saving
 	- Added settings dialog to configure custom output directories for OpenLayers and MapLibre
-
 
